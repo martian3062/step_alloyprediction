@@ -98,12 +98,19 @@ class PreciseSTEPAnalyzer:
         from OCP.BRepCheck import BRepCheck_Analyzer
         from OCP.BRepBndLib import BRepBndLib
 
+        import gc
+
         try:
             reader = STEPControl_Reader()
             if reader.ReadFile(file_path) != IFSelect_RetDone:
+                # Cleanup if read fails
+                del reader
+                gc.collect()
                 raise ValueError("Invalid STEP file")
             
             if reader.TransferRoots() == 0:
+                del reader
+                gc.collect()
                 raise ValueError("No transferable roots")
 
             shape = reader.OneShape()
@@ -147,7 +154,7 @@ class PreciseSTEPAnalyzer:
             # Projected Area Calculation (Max Principal Shadow)
             proj_area = max(dx * dy, dy * dz, dx * dz)
 
-            return {
+            result = {
                 "status": "success",
                 "precise_volume_cm3": round(vol_props.Mass() / 1000.0, 4),
                 "precise_surface_cm2": round(surf_props.Mass() / 100.0, 4),
@@ -163,7 +170,27 @@ class PreciseSTEPAnalyzer:
                     "integrity_score": 100 if is_valid else 75
                 }
             }
+
+            # AGGRESSIVE CLEANUP: Explicitly delete heavy OCP objects
+            del shape
+            del reader
+            del analyzer
+            del vol_props
+            del surf_props
+            del bbox
+            gc.collect()
+
+            return result
         except Exception as e:
+            # Emergency cleanup on error
+            try:
+                del shape
+            except: pass
+            try:
+                del reader
+            except: pass
+            gc.collect()
+            
             logger.error(f"OCP Analysis Error on {file_path}: {e}", exc_info=True)
             return {"status": "error", "reason": f"OCP_FAIL: {str(e)}"}
 
@@ -195,4 +222,8 @@ class PreciseSTEPAnalyzer:
             counts["vertices"] += 1
             exp.Next()
 
+        import gc
+        del exp
+        gc.collect()
+        
         return counts

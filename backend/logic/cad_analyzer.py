@@ -82,38 +82,36 @@ def analyze_cad(file_path):
             precise_analyzer = PreciseSTEPAnalyzer()
             precise_data = precise_analyzer.analyze(file_path)
 
-        # 2. Secondary: Trimesh Fallback
-        if mesh is None:
-            try:
-                mesh_raw = trimesh.load(file_path)
-                if isinstance(mesh_raw, trimesh.Scene):
-                    mesh = trimesh.util.concatenate([g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)])
-                else:
-                    mesh = mesh_raw
-            except Exception as e:
-                # Log the actual trimesh error for debugging
-                logger.error(f"Trimesh native load failed for {file_path}: {e}")
-                
-                # 3. Tertiary: GMSH Fallback for STEP/IGES
-                if ext in ['.step', '.stp', '.iges', '.igs']:
-                    logger.info("Attempting GMSH fallback for CAD geometry...")
-                    mesh = mesh_via_gmsh(file_path)
-                
-                if mesh is None:
-                    # Check why OCP was skipped/failed
-                    ocp_reason = precise_data.get("reason", "Unknown")
-                    err_msg = f"GEOMETRY_PARSE_FAILURE: File {ext} could not be read by OCP ({ocp_reason}), Trimesh, or GMSH. Please ensure it is a valid 3D file."
-                    raise ValueError(err_msg)
+        # 2. Secondary: Trimesh Load (Required for Preview even if OCP succeeds)
+        try:
+            mesh_raw = trimesh.load(file_path)
+            if isinstance(mesh_raw, trimesh.Scene):
+                mesh = trimesh.util.concatenate([g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)])
+            else:
+                mesh = mesh_raw
+        except Exception as e:
+            logger.warning(f"Initial trimesh load failed: {e}. Falling back to further methods.")
+            
+            # 3. Tertiary: GMSH Fallback for STEP/IGES (Only if Trimesh failed)
+            if ext in ['.step', '.stp', '.iges', '.igs']:
+                logger.info("Attempting GMSH fallback for CAD geometry...")
+                mesh = mesh_via_gmsh(file_path)
 
-        # 4. Trait Synthesis
+        # 4. Critical Failure Handling
+        if mesh is None and precise_data.get("status") != "success":
+             ocp_reason = precise_data.get("reason", "Unknown")
+             err_msg = f"GEOMETRY_PARSE_FAILURE: File {ext} could not be read by OCP ({ocp_reason}), Trimesh, or GMSH. Please ensure it is a valid 3D file."
+             raise ValueError(err_msg)
+
+        # 5. Trait Synthesis
         # Prioritize OCP precise volume > Trimesh/GMSH mesh approximation
         volume_cm3 = precise_data.get("precise_volume_cm3")
         surface_cm2 = precise_data.get("precise_surface_cm2")
         
-        if volume_cm3 is None:
+        if volume_cm3 is None and mesh is not None:
             volume_cm3 = (mesh.volume / 1000.0) if mesh.is_watertight else (abs(mesh.volume) / 1000.0)
         
-        if surface_cm2 is None:
+        if surface_cm2 is None and mesh is not None:
             surface_cm2 = mesh.area / 100.0
         
         # Dimensions (Prefer OCP)

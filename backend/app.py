@@ -42,8 +42,10 @@ def index():
 def health():
     return jsonify({
         "status": "healthy", 
-        "version": "1.3.0_MASTER", 
+        "version": "1.3.1_PROD", 
+        "timestamp": time.time(),
         "host_ip": get_local_ip(),
+        "instance_id": socket.gethostname(),
         "kernels": ["OCP_CASCADE", "TRIMESH_RAY", "GAMA_GProp"]
     })
 
@@ -146,13 +148,7 @@ def analyze():
         })
 
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        "status": "healthy",
-        "timestamp": time.time(),
-        "instance_id": socket.gethostname()
-    })
+# Removed duplicate health check
 
 @app.route('/api/estimate', methods=['POST'])
 def estimate():
