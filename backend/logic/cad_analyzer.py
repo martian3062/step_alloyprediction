@@ -81,6 +81,8 @@ def analyze_cad(file_path):
         if ext in ['.step', '.stp', '.iges', '.igs']:
             precise_analyzer = PreciseSTEPAnalyzer()
             precise_data = precise_analyzer.analyze(file_path)
+            if precise_data.get("status") == "fallback":
+                logger.warning(f"OCP Priority Analysis failed ({precise_data.get('reason')}). Falling back to Mesh-based approximation.")
 
         # 2. Secondary: Trimesh Load (Required for Preview even if OCP succeeds)
         try:
