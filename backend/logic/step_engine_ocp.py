@@ -79,26 +79,36 @@ class PreciseSTEPAnalyzer:
 
     def _get_ocp_method(self, parent, method_name):
         """
-        Deep search for OCP methods. Handles various binary naming conventions:
-        - Module level: Parent.VolumeProperties
-        - Class level: Parent.Parent.VolumeProperties (some wraps)
-        - Underscore forms: VolumeProperties_
+        NUCLEAR DISCOVERY: Deep search across OCP modules using dir() reflection.
+        Handles cases where methods are renamed or moved in different OCP builds.
         """
         candidates = [method_name, f"{method_name}_", method_name.lower()]
         
-        # 1. Direct Search in Parent
+        # 1. Standard Search (Highest Performance)
         for cand in candidates:
             if hasattr(parent, cand):
                 return getattr(parent, cand)
                 
-        # 2. Search for internal class with the same name (Namespace.Namespace pattern)
+        # 2. Namespace Search (parent.parent.method pattern)
         if hasattr(parent, "__name__"):
             base_name = parent.__name__.split('.')[-1]
             if hasattr(parent, base_name):
-                internal_klass = getattr(parent, base_name)
+                internal = getattr(parent, base_name)
                 for cand in candidates:
-                    if hasattr(internal_klass, cand):
-                        return getattr(internal_klass, cand)
+                    if hasattr(internal, cand):
+                        return getattr(internal, cand)
+
+        # 3. Reflection Search (Nuclear Fallback)
+        # Scan ALL attributes in the parent and return the first one that matches the pattern
+        try:
+            attrs = dir(parent)
+            for attr in attrs:
+                # Case-insensitive substring match (e.g. 'volumeproperties' matches 'BRepGProp.VolumeProperties')
+                if method_name.lower() in attr.lower():
+                    logger.info(f"OCP_DISCOVERY: Found approximate match for '{method_name}' -> '{attr}' in {parent}")
+                    return getattr(parent, attr)
+        except:
+            pass
 
         raise AttributeError(f"OCP Attribute Error: {method_name} NOT FOUND in {parent}")
 
