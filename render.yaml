@@ -15,6 +15,6 @@ services:
       - key: FLASK_ENV
         value: production
       - key: PYTHONPATH
-        value: /app/backend
+        value: /app
     healthCheckPath: /api/health
     plan: free 
