@@ -6,7 +6,6 @@ import io
 import uuid
 import time
 import logging
-import cascadio
 
 # Import the new OCP-based precise analyzer
 from .step_engine_ocp import PreciseSTEPAnalyzer
@@ -30,25 +29,7 @@ def analyze_cad(file_path):
             precise_analyzer = PreciseSTEPAnalyzer()
             precise_data = precise_analyzer.analyze(file_path)
 
-        # 2. Secondary: Cascadio Fallback for STEP/IGES Accuracy
-        # If OCP is missing (common on Render), use Cascadio to generate accurate mesh
-        mesh = None
-        if ext in ['.step', '.stp', '.iges', '.igs'] and precise_data.get("status") != "success":
-            try:
-                logger.info(f"ANALYZER: Using Cascadio fallback for {ext} accuracy...")
-                glb_path = f"{file_path}.glb"
-                cascadio.step_to_glb(file_path, glb_path)
-                mesh_raw = trimesh.load(glb_path)
-                if isinstance(mesh_raw, trimesh.Scene):
-                    mesh = trimesh.util.concatenate([g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)])
-                else:
-                    mesh = mesh_raw
-                # Clean up temp glb
-                if os.path.exists(glb_path): os.remove(glb_path)
-            except Exception as e:
-                logger.warning(f"Cascadio conversion failed: {e}")
-
-        # 3. Tertiary: Standard Trimesh Load (STL/OBJ or Native STEP)
+        # 2. Secondary: Trimesh Fallback
         if mesh is None:
             try:
                 mesh_raw = trimesh.load(file_path)
