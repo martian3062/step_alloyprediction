@@ -22,18 +22,17 @@ def calculate_hpdc_cost(traits, metal, annual_volume, sliders, location_multipli
     Calculates HPDC cost based on part traits and user parameters.
     """
     if metal not in METAL_PROPERTIES:
-        metal = "A380 (Aluminum)"
+        # Check for close matches or default to Aluminum
+        metal = "Aluminum_A380"
         
     props = METAL_PROPERTIES[metal]
-    volume = traits['volume']
-    projected_area = traits['projected_area']
+    volume = traits.get('volume', 0)
+    projected_area = traits.get('projected_area', 0)
     
     # Use live price if provided, else fallback to static data
     market_price = live_price_per_kg if live_price_per_kg is not None else props['price_per_kg']
     
     # 1. Material Cost (Refined Foundry Model)
-    volume = traits['volume']
-    projected_area = traits['projected_area']
     weight = volume * props['density'] # grams
     weight_kg = weight / 1000
     
@@ -54,14 +53,18 @@ def calculate_hpdc_cost(traits, metal, annual_volume, sliders, location_multipli
     force_tonne = force_kn / 9.81 # Exact conversion to Metric Tonne Force
     required_tonnage = force_tonne * 1.35 # 35% Safety factor for dynamic intensification
     
-    # Select Machine
-    machine_rate = 45 # Default
-    machine_tonnage = 250
+    # Select Machine (Ensure we at least select the 250T if tonnage > 0)
+    machine_rate = MACHINE_RATES[0]['rate']
+    machine_tonnage = MACHINE_RATES[0]['limit']
     for m in MACHINE_RATES:
         if required_tonnage <= m['limit']:
             machine_rate = m['rate']
             machine_tonnage = m['limit']
             break
+    
+    if required_tonnage > MACHINE_RATES[-1]['limit']:
+        machine_rate = MACHINE_RATES[-1]['rate']
+        machine_tonnage = MACHINE_RATES[-1]['limit']
             
     # 3. Cycle Time & Labor (Refined)
     # Base: 20s + cooling time (dependent on part weight and wall thickness proxy)

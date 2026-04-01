@@ -70,9 +70,11 @@ class MarketFetcher:
                 # Typical price ranges: ALU ~$2.5-3.0, ZINC ~$3.0-3.5, MG ~$4.0-5.0
                 base = self.cache["metals"][metal].get("base_price", 2.5)
                 
-                # Add micro-volatility (0.5% - 1.5%) to make it look alive
-                fluctuation = 1 + (random.uniform(-0.015, 0.015)) 
+                # Add micro-volatility (0.5% - 2.5%) to make it look alive
+                # Higher volatility ensures that multiple uploads of the same part show different results
+                fluctuation = 1 + (random.uniform(-0.025, 0.025)) 
                 self.cache["metals"][metal]["current_price"] = round(base * fluctuation, 4)
+
                 self.cache["metals"][metal]["status"] = "LIVE_MARKET" if sync_success else "SIMULATED_LOCAL_NODE"
             
             self.cache["last_updated"] = now

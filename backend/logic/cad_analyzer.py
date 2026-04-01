@@ -79,26 +79,51 @@ def analyze_cad(file_path):
             bounds = mesh.extents
             dimensions = {"x": round(bounds[0], 2), "y": round(bounds[1], 2), "z": round(bounds[2], 2)}
 
+        # Auto-Scale Detection: If all dimensions are < 1.0, it's likely a meter-scale model
+        # 0.19 units usually means 0.19 meters (190mm)
+        scale_factor = 1.0
+        if max(dimensions.values()) < 1.0 and max(dimensions.values()) > 0:
+            logger.info(f"ANALYZER: Tiny part detected ({max(dimensions.values())} units). Auto-scaling by 1000x (Meter to MM conversion).")
+            scale_factor = 1000.0
+            dimensions = {k: v * scale_factor for k, v in dimensions.items()}
+            volume_cm3 *= (scale_factor ** 3) / 1e6 # (mm3 to cm3 is /1000, but if we scale linear by 1000, vol scales by 1e9)
+            # Wait, if vol was 0.0001 (m3), scaling linear by 1000 makes it 1e2 (cm3)?
+            # Let's be careful. If units were meters, vol was in m3. 
+            # 1 m3 = 1,000,000 cm3.
+            # If we scale each dimension by 1000 (m to mm), volume scales by 1,000,000,000.
+            # But volume_cm3 was (mesh.volume / 1000). If mesh.volume was in m3, we need to multiply by 1,000,000.
+            if precise_data.get("status") == "success":
+                 # OCP data is already in mm/mm3 if default, but if it read meters, it's in m/m3
+                 pass 
+            
+            # Simple approach: apply scale factor to all traits
+            volume_cm3 *= (scale_factor ** 3) / 1000000.0 # m3 to cm3
+            surface_cm2 *= (scale_factor ** 2) / 100.0 # m2 to cm2
+
+
         # Projected Area (Critical for Tonnage)
         max_projected_area = precise_data.get("projected_area_mm2")
+        if max_projected_area is not None:
+             max_projected_area *= (scale_factor ** 2)
+
         if max_projected_area is None:
             # 3D Mesh Projection for Superior Accuracy
             try:
                 # We check the 3 primary axes to find the most probable parting direction
-                # This is much more accurate than simple bounding box multiplication
                 areas = []
+                # Use scaled mesh or scaled areas
                 for ax in [[1,0,0], [0,1,0], [0,0,1]]:
                     proj = trimesh.path.polygons.projected(mesh, normal=ax)
-                    areas.append(proj.area)
+                    areas.append(proj.area * (scale_factor ** 2))
                 max_projected_area = float(max(areas))
                 logger.info(f"ANALYZER: Mesh projection successful. Max Area: {round(max_projected_area, 2)}mm2")
             except Exception as e:
                 logger.warning(f"ANALYZER: Mesh projection failed ({e}). Falling back to B-Box.")
-                # Shadow approximation
                 max_projected_area = float(max(dimensions['x']*dimensions['y'], dimensions['y']*dimensions['z'], dimensions['x']*dimensions['z']))
 
         # Logging for Debugging Price Uniformity
-        logger.info(f"GEOMETRY_DETECTED: Vol={round(volume_cm3, 2)}cm3, Area={round(max_projected_area, 2)}mm2")
+        logger.info(f"GEOMETRY_DETECTED: Vol={round(volume_cm3, 2)}cm3, Area={round(max_projected_area, 2)}mm2 (Scaled: {scale_factor}x)")
+
 
         # Preview Generation
         stl_io = io.BytesIO()

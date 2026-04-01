@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# CAD Files (Privacy and Size)
+backend/uploads/*.STEP
+backend/uploads/*.step
+backend/uploads/*.stp
+backend/uploads/*.iges
+backend/uploads/*.igs
+backend/uploads/*.glb
+backend/uploads/*.stl
+
+# Debug/Temp
+debug_prices.py
+verify_logic.py
+test_step.py
+/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
