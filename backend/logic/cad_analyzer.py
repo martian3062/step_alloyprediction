@@ -21,6 +21,7 @@ def analyze_cad(file_path):
     """
     analysis_id = str(uuid.uuid4())
     ext = os.path.splitext(file_path)[1].lower()
+    mesh = None
     
     try:
         # 1. Primary: Precise B-Rep Analysis (Modern OCP Engine) 
