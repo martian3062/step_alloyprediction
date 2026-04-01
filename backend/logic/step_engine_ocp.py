@@ -20,8 +20,10 @@ try:
     from OCP.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX
     from OCP.BRepBndLib import BRepBndLib
     OCP_AVAILABLE = True
-except ImportError:
+except Exception as e:
     OCP_AVAILABLE = False
+    # This will show up in Render logs to tell us EXACTLY what lib is missing
+    logging.getLogger(__name__).error(f"OCP IMPORT FAILED: {e}. Precision engine disabled.")
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +145,8 @@ class PreciseSTEPAnalyzer:
                 }
             }
         except Exception as e:
-            logger.error(f"OCP Analysis Error: {e}")
-            return {"status": "error", "reason": str(e)}
+            logger.error(f"OCP Analysis Error on {file_path}: {e}", exc_info=True)
+            return {"status": "error", "reason": f"OCP_FAIL: {str(e)}"}
 
     def _get_topology_counts(self, shape) -> Dict[str, int]:
         counts = {"solids": 0, "shells": 0, "faces": 0, "edges": 0, "vertices": 0}

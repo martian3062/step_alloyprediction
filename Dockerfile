@@ -10,6 +10,13 @@ RUN apt-get update && apt-get install -y \
     libglu1-mesa \
     libsm6 \
     libice6 \
+    libfontconfig1 \
+    libxcursor1 \
+    libxft2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

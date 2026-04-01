@@ -11,6 +11,41 @@ import logging
 from .step_engine_ocp import PreciseSTEPAnalyzer
 
 logger = logging.getLogger(__name__)
+try:
+    import gmsh
+    GMSH_AVAILABLE = True
+except ImportError:
+    GMSH_AVAILABLE = False
+
+def mesh_via_gmsh(file_path):
+    """Fallback mesher for STEP/IGES when OCP fails or is skipped."""
+    if not GMSH_AVAILABLE:
+        return None
+    
+    try:
+        gmsh.initialize()
+        gmsh.model.add("MeshEngine")
+        gmsh.merge(file_path)
+        
+        # Simple meshing strategy: 2D then 3D
+        gmsh.model.mesh.generate(2)
+        gmsh.model.mesh.generate(3)
+        
+        temp_stl = f"/tmp/mesh_{uuid.uuid4()}.stl"
+        gmsh.write(temp_stl)
+        gmsh.finalize()
+        
+        mesh = trimesh.load(temp_stl)
+        if os.path.exists(temp_stl):
+            os.remove(temp_stl)
+        return mesh
+    except Exception as e:
+        logger.error(f"GMSH fallback failed: {e}")
+        try:
+            gmsh.finalize()
+        except:
+            pass
+        return None
 
 def analyze_cad(file_path):
     """
@@ -38,12 +73,23 @@ def analyze_cad(file_path):
                     mesh = trimesh.util.concatenate([g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)])
                 else:
                     mesh = mesh_raw
-            except:
-                # No static box fallback anymore - we want accuracy or failure
-                raise ValueError(f"CRITICAL: Failed to parse geometry for {ext} file. Try converting to STL.")
+            except Exception as e:
+                # Log the actual trimesh error for debugging
+                logger.error(f"Trimesh native load failed for {file_path}: {e}")
+                
+                # 3. Tertiary: GMSH Fallback for STEP/IGES
+                if ext in ['.step', '.stp', '.iges', '.igs']:
+                    logger.info("Attempting GMSH fallback for CAD geometry...")
+                    mesh = mesh_via_gmsh(file_path)
+                
+                if mesh is None:
+                    # Check why OCP was skipped/failed
+                    ocp_reason = precise_data.get("reason", "Unknown")
+                    err_msg = f"GEOMETRY_PARSE_FAILURE: File {ext} could not be read by OCP ({ocp_reason}), Trimesh, or GMSH. Please ensure it is a valid 3D file."
+                    raise ValueError(err_msg)
 
         # 4. Trait Synthesis
-        # Prioritize OCP precise volume > Cascadio volume > Trimesh approximation
+        # Prioritize OCP precise volume > Trimesh/GMSH mesh approximation
         volume_cm3 = precise_data.get("precise_volume_cm3")
         surface_cm2 = precise_data.get("precise_surface_cm2")
         
@@ -68,15 +114,6 @@ def analyze_cad(file_path):
             logger.info(f"ANALYZER: Tiny part detected ({max(dimensions.values())} units). Auto-scaling by 1000x (Meter to MM conversion).")
             scale_factor = 1000.0
             dimensions = {k: v * scale_factor for k, v in dimensions.items()}
-            volume_cm3 *= (scale_factor ** 3) / 1e6 # (mm3 to cm3 is /1000, but if we scale linear by 1000, vol scales by 1e9)
-            # Wait, if vol was 0.0001 (m3), scaling linear by 1000 makes it 1e2 (cm3)?
-            # Let's be careful. If units were meters, vol was in m3. 
-            # 1 m3 = 1,000,000 cm3.
-            # If we scale each dimension by 1000 (m to mm), volume scales by 1,000,000,000.
-            # But volume_cm3 was (mesh.volume / 1000). If mesh.volume was in m3, we need to multiply by 1,000,000.
-            if precise_data.get("status") == "success":
-                 # OCP data is already in mm/mm3 if default, but if it read meters, it's in m/m3
-                 pass 
             
             # Simple approach: apply scale factor to all traits
             volume_cm3 *= (scale_factor ** 3) / 1000000.0 # m3 to cm3
@@ -93,7 +130,6 @@ def analyze_cad(file_path):
             try:
                 # We check the 3 primary axes to find the most probable parting direction
                 areas = []
-                # Use scaled mesh or scaled areas
                 for ax in [[1,0,0], [0,1,0], [0,0,1]]:
                     proj = trimesh.path.polygons.projected(mesh, normal=ax)
                     areas.append(proj.area * (scale_factor ** 2))
@@ -122,10 +158,18 @@ def analyze_cad(file_path):
             "validation": precise_data.get("validation", {"is_manifold": bool(mesh.is_watertight), "integrity_score": 100 if mesh.is_watertight else 50})
         }
 
+        # Determine engine name for report
+        engine_name = "OCP_STRICT"
+        if precise_data.get("status") != "success":
+            if GMSH_AVAILABLE and ext in ['.step', '.stp', '.iges', '.igs']:
+                engine_name = "GMSH_CAD_BRIDGE"
+            else:
+                engine_name = "TRIMESH_FALLBACK"
+
         return {
             "analysis_id": analysis_id,
             "traits": traits,
-            "engine": "OCP_STRICT" if precise_data.get("status") == "success" else "CASCADIO_MESH_GEN",
+            "engine": engine_name,
             "metadata": {
                 "location": "PENDING_SYNC",
                 "timestamp": time.time()
