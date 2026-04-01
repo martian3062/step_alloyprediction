@@ -7,183 +7,153 @@ import uuid
 import time
 import logging
 
-# Import the new OCP-based precise analyzer
+# Import the GMSH-based precise analyzer (no OCP dependency)
 from .step_engine_ocp import PreciseSTEPAnalyzer
 
 logger = logging.getLogger(__name__)
-# Global state for Gmsh availability and initialization
-GMSH_AVAILABLE = None
 
-def initialize_gmsh():
-    """Lazy-loader for Gmsh to save memory at startup."""
-    global GMSH_AVAILABLE
-    if GMSH_AVAILABLE is not None:
-        return GMSH_AVAILABLE
-    
-    try:
-        import gmsh
-        GMSH_AVAILABLE = True
-        return True
-    except ImportError:
-        GMSH_AVAILABLE = False
-        logger.error("GMSH library not found. Gmsh fallback disabled.")
-        return False
-    except Exception as e:
-        GMSH_AVAILABLE = False
-        logger.error(f"GMSH initialization error: {e}. Gmsh fallback disabled.")
-        return False
-
-def mesh_via_gmsh(file_path):
-    """Fallback mesher for STEP/IGES when OCP fails or is skipped."""
-    if not initialize_gmsh():
-        return None
-    
-    import gmsh # Local import for lazy-loading
-    try:
-        gmsh.initialize()
-        gmsh.model.add("MeshEngine")
-        gmsh.merge(file_path)
-        
-        # Simple meshing strategy: 2D then 3D
-        gmsh.model.mesh.generate(2)
-        gmsh.model.mesh.generate(3)
-        
-        temp_stl = f"/tmp/mesh_{uuid.uuid4()}.stl"
-        gmsh.write(temp_stl)
-        gmsh.finalize()
-        
-        mesh = trimesh.load(temp_stl)
-        if os.path.exists(temp_stl):
-            os.remove(temp_stl)
-        return mesh
-    except Exception as e:
-        logger.error(f"GMSH fallback failed: {e}")
-        try:
-            gmsh.finalize()
-        except:
-            pass
-        return None
 
 def analyze_cad(file_path):
     """
-    Analyzes a CAD file with multi-layer fallbacks for 100% geometric accuracy.
-    1. OCP (OpenCascade) - Most Precise
-    2. Cascadio (OCC-based) - High Fidelity Mesh
-    3. Trimesh - Fast Approximation
+    Analyzes a CAD file using a simplified, robust pipeline:
+    
+    1. GMSH (Primary) — Reads STEP/IGES natively via its built-in OCCT kernel
+    2. Trimesh (Fallback) — For STL/OBJ/PLY and as a secondary mesh loader
+    
+    No cadquery-ocp dependency. No pybind11 compatibility issues.
     """
     analysis_id = str(uuid.uuid4())
     ext = os.path.splitext(file_path)[1].lower()
     mesh = None
-    
-    try:
-        # 1. Primary: Precise B-Rep Analysis (Modern OCP Engine) 
-        precise_data = {}
-        if ext in ['.step', '.stp', '.iges', '.igs']:
-            precise_analyzer = PreciseSTEPAnalyzer()
-            precise_data = precise_analyzer.analyze(file_path)
-            if precise_data.get("status") == "fallback":
-                logger.warning(f"OCP Priority Analysis failed ({precise_data.get('reason')}). Falling back to Mesh-based approximation.")
+    precise_data = {}
 
-        # 2. Secondary: Trimesh Load (Required for Preview even if OCP succeeds)
+    try:
+        # ── Step 1: GMSH-Based Precise Analysis (for STEP/IGES) ──────────
+        if ext in ['.step', '.stp', '.iges', '.igs']:
+            logger.info(f"ANALYZER: Processing {ext} file via GMSH engine...")
+            analyzer = PreciseSTEPAnalyzer()
+            precise_data = analyzer.analyze(file_path)
+            
+            if precise_data.get("status") == "success":
+                logger.info("ANALYZER: GMSH precise analysis succeeded.")
+            else:
+                logger.warning(f"ANALYZER: GMSH analysis returned: {precise_data.get('reason', 'unknown')}")
+
+        # ── Step 2: Trimesh Mesh Load (for preview + fallback metrics) ───
         try:
             mesh_raw = trimesh.load(file_path)
             if isinstance(mesh_raw, trimesh.Scene):
-                mesh = trimesh.util.concatenate([g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)])
-            else:
+                geometries = [g for g in mesh_raw.geometry.values() if isinstance(g, trimesh.Trimesh)]
+                if geometries:
+                    mesh = trimesh.util.concatenate(geometries)
+            elif isinstance(mesh_raw, trimesh.Trimesh):
                 mesh = mesh_raw
         except Exception as e:
-            logger.warning(f"Initial trimesh load failed: {e}. Falling back to further methods.")
-            
-            # 3. Tertiary: GMSH Fallback for STEP/IGES (Only if Trimesh failed)
-            if ext in ['.step', '.stp', '.iges', '.igs']:
-                logger.info("Attempting GMSH fallback for CAD geometry...")
-                mesh = mesh_via_gmsh(file_path)
+            logger.warning(f"Trimesh direct load failed: {e}")
 
-        # 4. Critical Failure Handling
+        # ── Step 3: If both methods produced nothing, hard fail ──────────
         if mesh is None and precise_data.get("status") != "success":
-             ocp_reason = precise_data.get("reason", "Unknown")
-             # LOGGING_ENHANCEMENT: Dump more context for remote debugging
-             logger.error(f"FATAL_GEOMETRY_FAILURE: OCP failed ({ocp_reason}) and Mesh/GMSH failed. Check Docker build logs for GMSH install status.")
-             err_msg = f"GEOMETRY_PARSE_FAILURE: File {ext} could not be read by OCP ({ocp_reason}), Trimesh, or GMSH. Please ensure it is a valid 3D file."
-             raise ValueError(err_msg)
+            reason = precise_data.get("reason", "No engine could parse this file")
+            err_msg = (
+                f"GEOMETRY_PARSE_FAILURE: File {ext} could not be read by "
+                f"GMSH ({reason}) or Trimesh. Please ensure it is a valid 3D file."
+            )
+            raise ValueError(err_msg)
 
-        # 5. Trait Synthesis
-        # Prioritize OCP precise volume > Trimesh/GMSH mesh approximation
+        # ── Step 4: Synthesize Traits ─────────────────────────────────────
+        # Prefer GMSH precise data > Trimesh mesh approximation
         volume_cm3 = precise_data.get("precise_volume_cm3")
         surface_cm2 = precise_data.get("precise_surface_cm2")
-        
+
         if volume_cm3 is None and mesh is not None:
-            volume_cm3 = (mesh.volume / 1000.0) if mesh.is_watertight else (abs(mesh.volume) / 1000.0)
-        
+            volume_cm3 = abs(mesh.volume) / 1000.0
         if surface_cm2 is None and mesh is not None:
             surface_cm2 = mesh.area / 100.0
-        
-        # Dimensions (Prefer OCP)
+
+        # Dimensions
         if "dimensions" in precise_data:
             dims = precise_data["dimensions"]
             dimensions = {"x": dims["x"], "y": dims["y"], "z": dims["z"]}
-        else:
+        elif mesh is not None:
             bounds = mesh.extents
-            dimensions = {"x": round(bounds[0], 2), "y": round(bounds[1], 2), "z": round(bounds[2], 2)}
+            dimensions = {
+                "x": round(float(bounds[0]), 2),
+                "y": round(float(bounds[1]), 2),
+                "z": round(float(bounds[2]), 2)
+            }
+        else:
+            dimensions = {"x": 1.0, "y": 1.0, "z": 1.0}
 
-        # Auto-Scale Detection: If all dimensions are < 1.0, it's likely a meter-scale model
-        # 0.19 units usually means 0.19 meters (190mm)
+        # Auto-Scale Detection (meter → mm)
         scale_factor = 1.0
         if max(dimensions.values()) < 1.0 and max(dimensions.values()) > 0:
-            logger.info(f"ANALYZER: Tiny part detected ({max(dimensions.values())} units). Auto-scaling by 1000x (Meter to MM conversion).")
+            logger.info(f"ANALYZER: Tiny part detected ({max(dimensions.values())} units). Auto-scaling 1000x.")
             scale_factor = 1000.0
             dimensions = {k: v * scale_factor for k, v in dimensions.items()}
-            
-            # Simple approach: apply scale factor to all traits
-            volume_cm3 *= (scale_factor ** 3) / 1000000.0 # m3 to cm3
-            surface_cm2 *= (scale_factor ** 2) / 100.0 # m2 to cm2
+            volume_cm3 *= (scale_factor ** 3) / 1000000.0
+            surface_cm2 *= (scale_factor ** 2) / 100.0
 
-
-        # Projected Area (Critical for Tonnage)
+        # Projected Area
         max_projected_area = precise_data.get("projected_area_mm2")
         if max_projected_area is not None:
-             max_projected_area *= (scale_factor ** 2)
+            max_projected_area *= (scale_factor ** 2)
 
         if max_projected_area is None:
-            # 3D Mesh Projection for Superior Accuracy
-            try:
-                # We check the 3 primary axes to find the most probable parting direction
-                areas = []
-                for ax in [[1,0,0], [0,1,0], [0,0,1]]:
-                    proj = trimesh.path.polygons.projected(mesh, normal=ax)
-                    areas.append(proj.area * (scale_factor ** 2))
-                max_projected_area = float(max(areas))
-                logger.info(f"ANALYZER: Mesh projection successful. Max Area: {round(max_projected_area, 2)}mm2")
-            except Exception as e:
-                logger.warning(f"ANALYZER: Mesh projection failed ({e}). Falling back to B-Box.")
-                max_projected_area = float(max(dimensions['x']*dimensions['y'], dimensions['y']*dimensions['z'], dimensions['x']*dimensions['z']))
+            if mesh is not None:
+                try:
+                    areas = []
+                    for ax in [[1, 0, 0], [0, 1, 0], [0, 0, 1]]:
+                        proj = trimesh.path.polygons.projected(mesh, normal=ax)
+                        areas.append(proj.area * (scale_factor ** 2))
+                    max_projected_area = float(max(areas))
+                except Exception:
+                    max_projected_area = float(max(
+                        dimensions['x'] * dimensions['y'],
+                        dimensions['y'] * dimensions['z'],
+                        dimensions['x'] * dimensions['z']
+                    ))
+            else:
+                max_projected_area = float(max(
+                    dimensions['x'] * dimensions['y'],
+                    dimensions['y'] * dimensions['z'],
+                    dimensions['x'] * dimensions['z']
+                ))
 
-        # Logging for Debugging Price Uniformity
-        logger.info(f"GEOMETRY_DETECTED: Vol={round(volume_cm3, 2)}cm3, Area={round(max_projected_area, 2)}mm2 (Scaled: {scale_factor}x)")
+        logger.info(f"GEOMETRY_DETECTED: Vol={round(volume_cm3, 2)}cm3, Area={round(max_projected_area, 2)}mm2 (Scale: {scale_factor}x)")
 
+        # ── Step 5: Preview Generation ────────────────────────────────────
+        preview_mesh_base64 = ""
+        if mesh is not None:
+            stl_io = io.BytesIO()
+            mesh.export(stl_io, file_type='stl')
+            preview_mesh_base64 = base64.b64encode(stl_io.getvalue()).decode('utf-8')
 
-        # Preview Generation
-        stl_io = io.BytesIO()
-        mesh.export(stl_io, file_type='stl')
-        preview_mesh_base64 = base64.b64encode(stl_io.getvalue()).decode('utf-8')
+        # Topology
+        topology = precise_data.get("topology", {
+            "solids": 1,
+            "faces": int(len(mesh.faces)) if mesh is not None else 0,
+            "edges": 0,
+            "vertices": int(len(mesh.vertices)) if mesh is not None else 0
+        })
+        
+        # Validation
+        validation = precise_data.get("validation", {
+            "is_manifold": bool(mesh.is_watertight) if mesh is not None else False,
+            "integrity_score": 100 if (mesh is not None and mesh.is_watertight) else 50
+        })
 
         traits = {
-            "volume": float(volume_cm3 * 1000.0), # mm3
-            "surface_area": float(surface_cm2 * 100.0), # mm2
+            "volume": float(volume_cm3 * 1000.0),  # mm3
+            "surface_area": float(surface_cm2 * 100.0),  # mm2
             "dimensions": dimensions,
             "projected_area": float(max_projected_area),
-            "preview_mesh": f"data:model/stl;base64,{preview_mesh_base64}",
-            "topology": precise_data.get("topology", {"solids": 1, "faces": len(mesh.faces), "edges": 0, "vertices": len(mesh.vertices)}),
-            "validation": precise_data.get("validation", {"is_manifold": bool(mesh.is_watertight), "integrity_score": 100 if mesh.is_watertight else 50})
+            "preview_mesh": f"data:model/stl;base64,{preview_mesh_base64}" if preview_mesh_base64 else "",
+            "topology": topology,
+            "validation": validation,
         }
 
-        # Determine engine name for report
-        engine_name = "OCP_STRICT"
-        if precise_data.get("status") != "success":
-            if GMSH_AVAILABLE and ext in ['.step', '.stp', '.iges', '.igs']:
-                engine_name = "GMSH_CAD_BRIDGE"
-            else:
-                engine_name = "TRIMESH_FALLBACK"
+        # Engine determination
+        engine_name = "GMSH_PRECISE" if precise_data.get("status") == "success" else "TRIMESH_FALLBACK"
 
         return {
             "analysis_id": analysis_id,
@@ -195,5 +165,5 @@ def analyze_cad(file_path):
             }
         }
     except Exception as e:
-        logger.error(f"CRITICAL_BACKEND_FAILURE: {e}")
+        logger.error(f"CRITICAL_BACKEND_FAILURE: {e}", exc_info=True)
         return {"error": str(e)}

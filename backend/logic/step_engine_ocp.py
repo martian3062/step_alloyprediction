@@ -1,40 +1,16 @@
 """
-Advanced B-Rep Analysis Engine (OCCT-based)
-Includes: Metal Auto-Detection from STEP file metadata
+STEP/IGES Geometry Engine — GMSH-Primary Architecture (V2)
+No OCP dependency. Uses GMSH for STEP→Mesh conversion, Trimesh for analysis.
+Includes: Metal Auto-Detection from STEP file metadata.
 """
 
 import logging
-import re
 import os
 import gc
+import uuid
+import trimesh
+import numpy as np
 from typing import Dict, Any, Optional
-
-# Global state for OCP availability and initialization
-OCP_AVAILABLE = None 
-
-def initialize_ocp():
-    """Lazy-loader for OCP to save memory at startup."""
-    global OCP_AVAILABLE, STEPControl_Reader, IFSelect_RetDone, Bnd, BRepGProp, GProp, BRepCheck, BRepBndLib, TopExp, TopAbs
-    if OCP_AVAILABLE is not None:
-        return OCP_AVAILABLE
-    
-    try:
-        from OCP.STEPControl import STEPControl_Reader
-        from OCP.IFSelect import IFSelect_RetDone
-        import OCP.Bnd as Bnd
-        import OCP.BRepGProp as BRepGProp
-        import OCP.GProp as GProp
-        import OCP.BRepCheck as BRepCheck
-        import OCP.BRepBndLib as BRepBndLib
-        import OCP.TopExp as TopExp
-        import OCP.TopAbs as TopAbs
-        
-        OCP_AVAILABLE = True
-        return True
-    except Exception as e:
-        OCP_AVAILABLE = False
-        logging.getLogger(__name__).error(f"OCP LAZY-LOAD FAILED: {e}. Priority analysis disabled.")
-        return False
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +38,7 @@ METAL_KEYWORDS = {
 def detect_metal_from_step(file_path: str) -> Optional[str]:
     try:
         with open(file_path, 'r', errors='ignore') as f:
-            content = f.read(8192)  # Read first 8KB
+            content = f.read(8192)
         content_upper = content.upper()
         for keyword, metal_name in METAL_KEYWORDS.items():
             if keyword in content_upper:
@@ -71,152 +47,156 @@ def detect_metal_from_step(file_path: str) -> Optional[str]:
         logger.warning(f"Metal detection scan failed: {e}")
     return None
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  GMSH-Based Precise Analyzer (Primary Engine — No OCP needed)
+# ═══════════════════════════════════════════════════════════════════════════
+
 class PreciseSTEPAnalyzer:
-    """Robust OCP-based STEP analyzer with Lazy-Loading and multi-level namespace search."""
+    """
+    Production-grade STEP analyzer using GMSH for geometry + Trimesh for metrics.
     
+    Pipeline:
+      1. GMSH reads the STEP/IGES file natively (it has its own OCCT kernel built-in)
+      2. GMSH generates a high-quality surface mesh
+      3. Trimesh analyzes the mesh for volume, area, bbox, topology
+    
+    This completely bypasses the cadquery-ocp pybind11 bindings that are
+    incompatible with the Render deployment environment.
+    """
+
     def __init__(self):
-        pass
+        self._gmsh_available = None
 
-    def _get_ocp_method(self, parent, method_name):
-        """
-        NUCLEAR DISCOVERY v2: Searches for attributes with Prefix support (e.g. BRepGProp_VolumeProperties).
-        """
-        # Get base name for prefixing
-        prefix = ""
-        if hasattr(parent, "__name__"):
-            prefix = parent.__name__.split('.')[-1]
-            
-        candidates = [
-            method_name, 
-            f"{method_name}_", 
-            f"{prefix}_{method_name}", # E.g. BRepGProp_VolumeProperties
-            f"{prefix}_{method_name}_",
-            method_name.lower(),
-            f"{prefix}_{method_name.lower()}"
-        ]
-        
-        # 1. Standard Search
-        for cand in candidates:
-            if hasattr(parent, cand):
-                return getattr(parent, cand)
-                
-        # 2. Namespace Scan (Internal same-name class)
-        if prefix and hasattr(parent, prefix):
-            internal = getattr(parent, prefix)
-            for cand in candidates:
-                if hasattr(internal, cand):
-                    return getattr(internal, cand)
-
-        # 3. Aggressivedir() Scan
+    def _check_gmsh(self) -> bool:
+        """Lazy-check for GMSH availability."""
+        if self._gmsh_available is not None:
+            return self._gmsh_available
         try:
-            available = dir(parent)
-            # Find any attribute that CONTAINS the method name
-            for attr in available:
-                if method_name.lower() in attr.lower():
-                    logger.info(f"OCP_DISCOVERY: Pattern Match for '{method_name}' -> '{attr}' in {parent}")
-                    return getattr(parent, attr)
-        except:
-            pass
+            import gmsh
+            self._gmsh_available = True
+            return True
+        except ImportError:
+            logger.error("GMSH not installed. PreciseSTEPAnalyzer disabled.")
+            self._gmsh_available = False
+            return False
+        except Exception as e:
+            logger.error(f"GMSH init check failed: {e}")
+            self._gmsh_available = False
+            return False
 
-        # 4. Ultimate Failure: Log dir() for remote debugging
-        logger.error(f"OCP Attribute Error: {method_name} NOT FOUND in {parent}. Available: {dir(parent)[:50]}...")
-        raise AttributeError(f"OCP Attribute Error: {method_name} NOT FOUND in {parent}")
+    def _step_to_mesh(self, file_path: str) -> Optional[trimesh.Trimesh]:
+        """
+        Convert STEP/IGES → high-quality trimesh using GMSH's built-in OCCT kernel.
+        GMSH ships with its own OpenCascade, so this works independently of cadquery-ocp.
+        """
+        if not self._check_gmsh():
+            return None
+
+        import gmsh
+        temp_stl = None
+        try:
+            gmsh.initialize()
+            gmsh.option.setNumber("General.Terminal", 0)  # Suppress console output
+            gmsh.model.add("StepAnalysis")
+            
+            # GMSH natively supports STEP and IGES via its built-in OCCT kernel
+            gmsh.merge(file_path)
+            
+            # Generate a fine surface mesh for accurate volume/area calculation
+            gmsh.option.setNumber("Mesh.MeshSizeMin", 0.1)
+            gmsh.option.setNumber("Mesh.MeshSizeMax", 5.0)
+            gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay
+            gmsh.model.mesh.generate(2)  # Surface mesh only — lighter on RAM
+            
+            # Export to temporary STL
+            temp_stl = f"/tmp/gmsh_precise_{uuid.uuid4().hex[:8]}.stl"
+            gmsh.write(temp_stl)
+            gmsh.finalize()
+            
+            # Load with trimesh
+            mesh = trimesh.load(temp_stl)
+            if isinstance(mesh, trimesh.Scene):
+                mesh = trimesh.util.concatenate(
+                    [g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)]
+                )
+            
+            return mesh
+
+        except Exception as e:
+            logger.error(f"GMSH STEP→Mesh conversion failed: {e}")
+            try:
+                gmsh.finalize()
+            except:
+                pass
+            return None
+        finally:
+            # Cleanup temp file
+            if temp_stl and os.path.exists(temp_stl):
+                try:
+                    os.remove(temp_stl)
+                except:
+                    pass
+            gc.collect()
 
     def analyze(self, file_path: str) -> Dict[str, Any]:
-        """Entry point. Returns 'fallback' status on ANY error to prevent crash."""
-        if not initialize_ocp():
-             return {"status": "fallback", "reason": "OCP_LOAD_FAILURE"}
-
-        shape = None
-        reader = None
+        """
+        Full geometry analysis pipeline.
+        Returns precise volume, surface area, dimensions, topology,
+        and validation metrics from the GMSH-generated mesh.
+        """
+        mesh = self._step_to_mesh(file_path)
         
+        if mesh is None or not hasattr(mesh, 'vertices') or len(mesh.vertices) == 0:
+            return {"status": "fallback", "reason": "GMSH_MESH_FAILED"}
+
         try:
-            reader = STEPControl_Reader()
-            if reader.ReadFile(file_path) != IFSelect_RetDone:
-                return {"status": "fallback", "reason": "FILE_READ_FAILED"}
+            # Volume & Surface Area from mesh
+            volume_mm3 = abs(mesh.volume) if mesh.volume else 0.0
+            surface_mm2 = mesh.area if mesh.area else 0.0
             
-            if reader.TransferRoots() == 0:
-                return {"status": "fallback", "reason": "TRANSFER_ROOTS_FAILED"}
-
-            shape = reader.OneShape()
-            if shape.IsNull():
-                return {"status": "fallback", "reason": "SHAPE_NULL"}
-
-            # Get the GProps class (it might be under GProp or GProp.GProp_GProps)
-            gprops_klass = self._get_ocp_method(GProp, "GProp_GProps")
+            # Bounding box
+            bounds = mesh.bounds  # [[xmin,ymin,zmin], [xmax,ymax,zmax]]
+            dims = mesh.extents   # [dx, dy, dz]
+            dx, dy, dz = float(dims[0]), float(dims[1]), float(dims[2])
             
-            # 1. Precise Geometrics
-            vol_props = gprops_klass()
-            self._get_ocp_method(BRepGProp, "VolumeProperties")(shape, vol_props, False, False, False)
+            # Projected area (max of 3 bounding-box face areas)
+            projected_area = max(dx * dy, dy * dz, dx * dz)
             
-            surf_props = gprops_klass()
-            self._get_ocp_method(BRepGProp, "SurfaceProperties")(shape, surf_props, False, False)
-
-            # Bounding Box (Uses Bnd.Bnd_Box)
-            bbox = Bnd.Bnd_Box()
-            self._get_ocp_method(bbox, "SetGap")(0.0)
-            self._get_ocp_method(BRepBndLib, "Add")(shape, bbox, True)
-            
-            # Robust Corner Retrieval
-            try:
-                # Some OCP versions have Get(), others have get(), others have CornerMin
-                if hasattr(bbox, "Get"): res = bbox.Get()
-                elif hasattr(bbox, "get"): res = bbox.get()
-                else: res = None
-
-                if res and isinstance(res, tuple) and len(res) == 6:
-                    xmin, ymin, zmin, xmax, ymax, zmax = res
-                else:
-                    c_min = self._get_ocp_method(bbox, "CornerMin")()
-                    c_max = self._get_ocp_method(bbox, "CornerMax")()
-                    xmin, ymin, zmin = c_min.X(), c_min.Y(), c_min.Z()
-                    xmax, ymax, zmax = c_max.X(), c_max.Y(), c_max.Z()
-            except:
-                xmin, ymin, zmin, xmax, ymax, zmax = 0, 0, 0, 0.01, 0.01, 0.01
-
-            dx, dy, dz = abs(xmax-xmin), abs(ymax-ymin), abs(zmax-zmin)
-
-            # 2. Topology and Validation
-            topology = self._get_topology_counts(shape)
-            is_valid = self._get_ocp_method(BRepCheck, "BRepCheck_Analyzer")(shape).IsValid()
-
-            result = {
-                "status": "success",
-                "precise_volume_cm3": round(vol_props.Mass() / 1000.0, 4),
-                "precise_surface_cm2": round(surf_props.Mass() / 100.0, 4),
-                "projected_area_mm2": round(max(dx*dy, dy*dz, dx*dz), 2),
-                "dimensions": {"x": round(dx, 2), "y": round(dy, 2), "z": round(dz, 2)},
-                "topology": topology,
-                "validation": {"is_manifold": is_valid, "integrity_score": 100 if is_valid else 75}
+            # Basic topology from mesh
+            topology = {
+                "solids": 1,
+                "shells": 1,
+                "faces": int(len(mesh.faces)),
+                "edges": int(len(mesh.edges_unique)) if hasattr(mesh, 'edges_unique') else 0,
+                "vertices": int(len(mesh.vertices))
             }
             
-            # Immediate Reclamation
-            del shape, reader
+            # Validation
+            is_watertight = bool(mesh.is_watertight)
+            
+            result = {
+                "status": "success",
+                "precise_volume_cm3": round(volume_mm3 / 1000.0, 4),
+                "precise_surface_cm2": round(surface_mm2 / 100.0, 4),
+                "projected_area_mm2": round(projected_area, 2),
+                "dimensions": {
+                    "x": round(dx, 2),
+                    "y": round(dy, 2),
+                    "z": round(dz, 2)
+                },
+                "topology": topology,
+                "validation": {
+                    "is_manifold": is_watertight,
+                    "integrity_score": 100 if is_watertight else 70
+                }
+            }
+            
+            # Memory cleanup
+            del mesh
             gc.collect()
             return result
 
         except Exception as e:
-            logger.error(f"OCP Robustness Error: {str(e)}", exc_info=True)
-            return {"status": "fallback", "reason": f"OCP_API_INCOMPATIBILITY: {str(e)}"}
-
-    def _get_topology_counts(self, shape) -> Dict[str, int]:
-        counts = {"solids": 0, "shells": 0, "faces": 0, "edges": 0, "vertices": 0}
-        try:
-            exp = TopExp.TopExp_Explorer()
-            
-            # Map topology types
-            types = {
-                TopAbs.TopAbs_SOLID: "solids",
-                TopAbs.TopAbs_FACE: "faces",
-                TopAbs.TopAbs_EDGE: "edges",
-                TopAbs.TopAbs_VERTEX: "vertices"
-            }
-            
-            for t_abs, key in types.items():
-                exp.Init(shape, t_abs)
-                while exp.More():
-                    counts[key] += 1
-                    exp.Next()
-                    
-        except: pass
-        return counts
+            logger.error(f"Mesh analysis failed: {e}", exc_info=True)
+            return {"status": "fallback", "reason": f"MESH_ANALYSIS_ERROR: {str(e)}"}
