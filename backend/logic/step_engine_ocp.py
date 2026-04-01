@@ -1,0 +1,173 @@
+"""
+Advanced B-Rep Analysis Engine (OCCT-based)
+Includes: Metal Auto-Detection from STEP file metadata
+"""
+
+import logging
+import re
+import os
+from typing import Dict, Any, Optional
+
+# Attempt OCP (Open Cascade for Python) imports
+try:
+    from OCP.STEPControl import STEPControl_Reader
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX
+    from OCP.BRepBndLib import BRepBndLib
+    OCP_AVAILABLE = True
+except ImportError:
+    OCP_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
+
+# ─── Metal Keyword Detection Map ────────────────────────────────────────────
+# Maps common STEP file material keywords → known HPDC metal names
+METAL_KEYWORDS = {
+    "A380": "A380 (Aluminum)",
+    "A383": "A380 (Aluminum)",
+    "A360": "A380 (Aluminum)",
+    "ADC12": "A380 (Aluminum)",
+    "ALUMINUM": "A380 (Aluminum)",
+    "ALUMINIUM": "A380 (Aluminum)",
+    "AL": "A380 (Aluminum)",
+    "6061": "A380 (Aluminum)",
+    "6063": "A380 (Aluminum)",
+    "ZINC": "Zinc-3",
+    "ZAMAK": "Zinc-3",
+    "ZA": "Zinc-3",
+    "ZDC": "Zinc-3",
+    "MAGNESIUM": "Magnesium-AZ91D",
+    "AZ91": "Magnesium-AZ91D",
+    "AM60": "Magnesium-AZ91D",
+    "MG": "Magnesium-AZ91D",
+}
+
+def detect_metal_from_step(file_path: str) -> Optional[str]:
+    """
+    Scans STEP file text for material/product keywords to auto-detect metal.
+    Returns a known metal name or None if not detectable.
+    """
+    try:
+        with open(file_path, 'r', errors='ignore') as f:
+            content = f.read(8192)  # Read first 8KB (headers only)
+        
+        content_upper = content.upper()
+        for keyword, metal_name in METAL_KEYWORDS.items():
+            if keyword in content_upper:
+                logger.info(f"Metal auto-detected: '{keyword}' → '{metal_name}'")
+                return metal_name
+    except Exception as e:
+        logger.warning(f"Metal detection scan failed: {e}")
+    
+    return None  # Cannot determine from file
+
+
+class PreciseSTEPAnalyzer:
+    """Robust OCP-based STEP analyzer for HPDC Precision"""
+    
+    def __init__(self):
+        self.available = OCP_AVAILABLE
+
+    def analyze(self, file_path: str) -> Dict[str, Any]:
+        if not self.available:
+            return {"status": "skipped", "reason": "OCP_NOT_INSTALLED"}
+
+        try:
+            reader = STEPControl_Reader()
+            if reader.ReadFile(file_path) != IFSelect_RetDone:
+                raise ValueError("Invalid STEP file")
+            
+            if reader.TransferRoots() == 0:
+                raise ValueError("No transferable roots")
+
+            shape = reader.OneShape()
+
+            # 1. Precise Geometrics
+            vol_props = GProp_GProps()
+            BRepGProp.VolumeProperties(shape, vol_props, False, False, False)
+            
+            surf_props = GProp_GProps()
+            BRepGProp.SurfaceProperties(shape, surf_props, False, False)
+
+            bbox = Bnd_Box()
+            bbox.SetGap(0.0)
+            BRepBndLib.Add(shape, bbox, True)
+            
+            # Robust Corner Retrieval
+            try:
+                xmin, ymin, zmin, xmax, ymax, zmax = 0, 0, 0, 0, 0, 0
+                res = bbox.Get()
+                if isinstance(res, tuple) and len(res) == 6:
+                    xmin, ymin, zmin, xmax, ymax, zmax = res
+                else:
+                    p_min = bbox.CornerMin()
+                    p_max = bbox.CornerMax()
+                    xmin, ymin, zmin = p_min.X(), p_min.Y(), p_min.Z()
+                    xmax, ymax, zmax = p_max.X(), p_max.Y(), p_max.Z()
+            except:
+                xmin, ymin, zmin, xmax, ymax, zmax = 0, 0, 0, 0.01, 0.01, 0.01
+
+            dx = abs(xmax - xmin)
+            dy = abs(ymax - ymin)
+            dz = abs(zmax - zmin)
+
+            # 2. Topology Check
+            topology = self._get_topology_counts(shape)
+
+            # 3. Validation (Geometric Integrity)
+            analyzer = BRepCheck_Analyzer(shape)
+            is_valid = analyzer.IsValid()
+
+            # Projected Area Calculation (Max Principal Shadow)
+            proj_area = max(dx * dy, dy * dz, dx * dz)
+
+            return {
+                "status": "success",
+                "precise_volume_cm3": round(vol_props.Mass() / 1000.0, 4),
+                "precise_surface_cm2": round(surf_props.Mass() / 100.0, 4),
+                "projected_area_mm2": round(proj_area, 2),
+                "dimensions": {
+                    "x": round(dx, 2),
+                    "y": round(dy, 2),
+                    "z": round(dz, 2)
+                },
+                "topology": topology,
+                "validation": {
+                    "is_manifold": is_valid,
+                    "integrity_score": 100 if is_valid else 75
+                }
+            }
+        except Exception as e:
+            logger.error(f"OCP Analysis Error: {e}")
+            return {"status": "error", "reason": str(e)}
+
+    def _get_topology_counts(self, shape) -> Dict[str, int]:
+        counts = {"solids": 0, "shells": 0, "faces": 0, "edges": 0, "vertices": 0}
+        exp = TopExp_Explorer()
+        
+        exp.Init(shape, TopAbs_SOLID)
+        while exp.More():
+            counts["solids"] += 1
+            exp.Next()
+            
+        exp.Init(shape, TopAbs_FACE)
+        while exp.More():
+            counts["faces"] += 1
+            exp.Next()
+
+        exp.Init(shape, TopAbs_EDGE)
+        while exp.More():
+            counts["edges"] += 1
+            exp.Next()
+
+        exp.Init(shape, TopAbs_VERTEX)
+        while exp.More():
+            counts["vertices"] += 1
+            exp.Next()
+
+        return counts
