@@ -3,6 +3,7 @@ flask-cors==4.0.0
 trimesh==4.1.2
 numpy==1.26.4
 gunicorn==21.2.0
+cadquery-ocp==7.9.3.1
 requests==2.31.0
 python-dotenv==1.0.1
 gmsh==4.12.1
