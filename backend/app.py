@@ -5,9 +5,9 @@ import uuid
 import socket
 import time
 from dotenv import load_dotenv
-from logic.cad_analyzer import analyze_cad
-from logic.cost_engine import calculate_hpdc_cost
-from logic.market_fetcher import market_fetcher
+from .logic.cad_analyzer import analyze_cad
+from .logic.cost_engine import calculate_hpdc_cost
+from .logic.market_fetcher import market_fetcher
 
 load_dotenv()
 
