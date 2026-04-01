@@ -4,7 +4,7 @@ services:
     runtime: docker
     env: python
     buildCommand: "docker build -t step-alloy-prediction ."
-    startCommand: "gunicorn --bind 0.0.0.0:$PORT backend.app:app"
+    startCommand: "gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 backend.app:app"
     envVars:
       - key: PORT
         value: 5000
@@ -15,4 +15,4 @@ services:
       - key: FLASK_ENV
         value: production
     healthCheckPath: /api/health
-    plan: free # Can be 'standard' etc.
+    plan: free 

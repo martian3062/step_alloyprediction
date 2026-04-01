@@ -27,5 +27,5 @@ ENV FLASK_APP=backend.app:app
 # Expose port
 EXPOSE 5000
 
-# Start command
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "backend.app:app"]
+# Start command with 1 worker to stay within 512MB RAM
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "2", "backend.app:app"]
