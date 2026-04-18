@@ -791,6 +791,151 @@ select option {
   line-height: 1.5;
 }
 
+.cad-real-diagnostics {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  padding: 22px;
+  position: relative;
+  z-index: 1;
+}
+
+.cad-diagnostic-header span {
+  display: block;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cad-diagnostic-header strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.cad-diagnostic-header p {
+  max-width: 680px;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.cad-real-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(240px, 1.28fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.cad-dimension-box {
+  min-height: 210px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(16,185,129,0.08), rgba(245,158,11,0.08)),
+    repeating-linear-gradient(0deg, transparent 0 17px, var(--grid-line) 17px 18px),
+    repeating-linear-gradient(90deg, transparent 0 17px, var(--grid-line) 17px 18px);
+  position: relative;
+  overflow: hidden;
+}
+
+.cad-dimension-box i,
+.cad-dimension-box b {
+  position: absolute;
+  display: block;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.7);
+}
+
+.cad-dimension-box i:first-child {
+  left: 18px;
+  bottom: 48px;
+  height: 42px;
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.16);
+}
+
+.cad-dimension-box i:nth-child(2) {
+  right: 26px;
+  bottom: 48px;
+  width: 38px;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.16);
+}
+
+.cad-dimension-box b {
+  left: 46px;
+  right: 58px;
+  top: 44px;
+  bottom: 72px;
+  background: rgba(255,255,255,0.08);
+  transform: skewY(-8deg);
+}
+
+.cad-dimension-box span {
+  position: absolute;
+  width: fit-content;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-glass);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.cad-dimension-box span:nth-of-type(1) {
+  left: 16px;
+  bottom: 14px;
+}
+
+.cad-dimension-box span:nth-of-type(2) {
+  right: 16px;
+  bottom: 14px;
+}
+
+.cad-dimension-box span:nth-of-type(3) {
+  right: 16px;
+  top: 14px;
+}
+
+.cad-real-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cad-real-metrics div {
+  min-height: 82px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.cad-real-metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cad-real-metrics strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--ink);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
 .cad-viewer::after {
   content: "";
   position: absolute;
@@ -1121,10 +1266,15 @@ select option {
   .field-grid,
   .quote-preview,
   .provider-strip,
+  .cad-real-layout,
   .geo-table,
   .assumption-grid,
   .metric-grid,
   .metric-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .cad-real-metrics {
     grid-template-columns: 1fr;
   }
 

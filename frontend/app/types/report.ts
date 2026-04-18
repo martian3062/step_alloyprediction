@@ -29,7 +29,14 @@ export interface AgentReport {
       z?: number;
     };
     validation?: {
+      is_manifold?: boolean;
       integrity_score?: number;
+    };
+    topology?: {
+      solids?: number;
+      faces?: number;
+      edges?: number;
+      vertices?: number;
     };
   };
   cost_estimation: {
