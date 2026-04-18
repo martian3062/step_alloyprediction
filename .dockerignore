@@ -13,6 +13,13 @@ ENV/
 .env.local
 .env.production
 node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+uploads/
+backend-dev*.log
+frontend-dev*.log
+*.log
 .DS_Store
 .idea/
 .vscode/

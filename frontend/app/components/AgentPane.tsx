@@ -34,7 +34,7 @@ interface ProviderStatus {
   role: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 const fallbackLocations: PlantLocation[] = [
   { name: 'India (Pune Node)', multiplier: 0.82, city: 'Pune', currency: 'INR' },
