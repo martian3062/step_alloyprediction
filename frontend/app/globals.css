@@ -1746,6 +1746,30 @@ select option {
   border-top: 1px solid var(--line);
 }
 
+.bot-memory-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.bot-memory-actions button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.bot-memory-actions button:hover {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+  background: var(--surface);
+}
+
 .bot-suggestion {
   padding: 5px 10px;
   border: 1px solid var(--line);

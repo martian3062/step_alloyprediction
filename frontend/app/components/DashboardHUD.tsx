@@ -78,6 +78,7 @@ export default function DashboardHUD({ persona, data, isProcessing }: DashboardH
   const locationPrice = (market.live_location_adjusted_price_usd ?? market.reference_location_adjusted_price_usd ?? 0) * rate;
 
   const botContext = {
+    report_id: data.id,
     file: data.file,
     engine: data.engine,
     geometry: {

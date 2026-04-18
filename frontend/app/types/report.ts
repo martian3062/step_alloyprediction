@@ -1,4 +1,5 @@
 export interface AgentReport {
+  id?: string;
   file: string;
   engine: string;
   manufacturing_assumptions?: {

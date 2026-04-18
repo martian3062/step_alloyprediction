@@ -9,6 +9,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface Msg { role: 'user' | 'bot'; text: string; ts: number; }
 
+const MEMORY_VERSION = 'v1';
+const MEMORY_LIMIT = 16;
+const defaultGreeting = "Hi, I'm AlloyBot. Upload a CAD file and I can explain the actual geometry, cost, assumptions, and market data from your quote.";
+
 const SUGGESTIONS = [
   'What did I upload?',
   'Explain my cost in simple words.',
@@ -22,6 +26,31 @@ const GENERAL_SUGGESTIONS = [
   'How is HPDC die amortization calculated?',
   'Why does location affect metal cost?',
 ];
+
+function getMemoryKey(reportContext?: Record<string, any> | null) {
+  if (reportContext?.report_id) return `alloybot-memory-${MEMORY_VERSION}-${reportContext.report_id}`;
+  if (reportContext?.file) return `alloybot-memory-${MEMORY_VERSION}-${reportContext.file}`;
+  return `alloybot-memory-${MEMORY_VERSION}-general`;
+}
+
+function readMemory(key: string): Msg[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || 'null') as Msg[] | null;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((item) => item && (item.role === 'user' || item.role === 'bot') && typeof item.text === 'string');
+  } catch {
+    return null;
+  }
+}
+
+function writeMemory(key: string, messages: Msg[]) {
+  if (typeof window === 'undefined') return;
+  const remembered = messages
+    .filter((item) => item.text.trim())
+    .slice(-MEMORY_LIMIT);
+  window.localStorage.setItem(key, JSON.stringify(remembered));
+}
 
 function BotAvatar({ speaking }: { speaking: boolean }) {
   return (
@@ -227,8 +256,9 @@ export default function AlloyBot({ reportContext }: { reportContext?: Record<str
   const [expanded, setExpanded] = useState(false);
   const hasFileContext = Boolean(reportContext?.file);
   const suggestions = useMemo(() => hasFileContext ? SUGGESTIONS : GENERAL_SUGGESTIONS, [hasFileContext]);
+  const memoryKey = useMemo(() => getMemoryKey(reportContext), [reportContext?.report_id, reportContext?.file]);
   const [messages, setMessages] = useState<Msg[]>(() => [
-    { role: 'bot', text: "Hi, I'm AlloyBot. Upload a CAD file and I can explain the actual geometry, cost, assumptions, and market data from your quote.", ts: Date.now() },
+    { role: 'bot', text: defaultGreeting, ts: Date.now() },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -238,14 +268,40 @@ export default function AlloyBot({ reportContext }: { reportContext?: Record<str
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
+  useEffect(() => {
+    const saved = readMemory(memoryKey);
+    setMessages(saved?.length ? saved : [{ role: 'bot', text: defaultGreeting, ts: Date.now() }]);
+  }, [memoryKey]);
+
+  useEffect(() => {
+    writeMemory(memoryKey, messages);
+  }, [memoryKey, messages]);
+
+  const clearMemory = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(memoryKey);
+    }
+    setMessages([{ role: 'bot', text: defaultGreeting, ts: Date.now() }]);
+  };
+
   const send = async (text?: string) => {
     const msg = (text || input).trim();
     if (!msg || loading) return;
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', text: msg, ts: Date.now() }]);
+    const outgoingMessages = [...messages, { role: 'user' as const, text: msg, ts: Date.now() }];
+    setMessages(outgoingMessages);
     setLoading(true);
     try {
-      const { data } = await axios.post(`${API_URL}/api/chat`, { message: msg, context: reportContext || undefined });
+      const conversationMemory = outgoingMessages
+        .slice(-10)
+        .map((m) => `${m.role}: ${m.text}`)
+        .join('\n');
+      const context = {
+        ...(reportContext || {}),
+        conversation_memory: conversationMemory,
+        memory_scope: hasFileContext ? 'uploaded_file' : 'general',
+      };
+      const { data } = await axios.post(`${API_URL}/api/chat`, { message: msg, context });
       setMessages((prev) => [...prev, { role: 'bot', text: data.reply, ts: Date.now() }]);
     } catch {
       setMessages((prev) => [...prev, { role: 'bot', text: 'Network error — please try again.', ts: Date.now() }]);
@@ -290,7 +346,7 @@ export default function AlloyBot({ reportContext }: { reportContext?: Record<str
               <PikaAvatar speaking={loading} />
               <div>
                 <strong>AlloyBot</strong>
-                <span>{loading ? 'Reading your part data...' : hasFileContext ? `Using ${reportContext?.file}` : 'Waiting for uploaded CAD data'}</span>
+                <span>{loading ? 'Reading your part data...' : hasFileContext ? `Memory for ${reportContext?.file}` : 'General memory active'}</span>
               </div>
               <div className="bot-header-actions">
                 <button type="button" onClick={() => setExpanded((e) => !e)} title={expanded ? 'Minimize' : 'Expand'}>
@@ -308,6 +364,12 @@ export default function AlloyBot({ reportContext }: { reportContext?: Record<str
                 <div className="bot-context-strip">
                   <strong>Part context active</strong>
                   <span>{reportContext?.file} · {reportContext?.market?.alloy?.replaceAll('_', ' ') || 'selected alloy'}</span>
+                </div>
+              )}
+              {!hasFileContext && (
+                <div className="bot-context-strip">
+                  <strong>General memory active</strong>
+                  <span>Upload a CAD file to create a separate memory for that file.</span>
                 </div>
               )}
               {loading && <div className="bot-energy-field"><i /><i /><i /><i /><i /><i /></div>}
@@ -341,6 +403,13 @@ export default function AlloyBot({ reportContext }: { reportContext?: Record<str
                     {s}
                   </button>
                 ))}
+              </div>
+            )}
+            {messages.filter((m) => m.role === 'user').length > 0 && (
+              <div className="bot-memory-actions">
+                <button type="button" onClick={clearMemory}>
+                  Clear memory for {hasFileContext ? 'this file' : 'general chat'}
+                </button>
               </div>
             )}
 
