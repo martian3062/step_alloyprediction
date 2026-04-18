@@ -80,8 +80,15 @@ function closestHub(lat: number, lon: number): string {
 
 const fallbackMetals: Record<string, MetalRate> = {
   Aluminum_A380: { current_price: 2.85, label: 'Aluminum A380' },
-  Zinc_ZD3: { current_price: 3.42, label: 'Zinc ZD3 / Zamak' },
+  Aluminum_ADC12: { current_price: 2.78, label: 'Aluminum ADC12' },
+  Aluminum_A356: { current_price: 3.05, label: 'Aluminum A356' },
+  Aluminum_6061: { current_price: 3.25, label: 'Aluminum 6061' },
+  Zinc_ZD3: { current_price: 3.42, label: 'Zinc ZD3 / Zamak 3' },
+  Zinc_Zamak5: { current_price: 3.55, label: 'Zinc Zamak 5' },
   Magnesium_AZ91D: { current_price: 4.65, label: 'Magnesium AZ91D' },
+  Magnesium_AM60B: { current_price: 4.90, label: 'Magnesium AM60B' },
+  Copper_Brass: { current_price: 8.70, label: 'Copper / Brass casting alloy' },
+  Steel_Stainless: { current_price: 2.15, label: 'Steel / Stainless reference' },
 };
 
 const supportedExtensions = ['STEP', 'STP', 'IGES', 'IGS', 'STL', 'OBJ', 'PLY', 'GLB', 'GLTF', '3MF', 'OFF', 'DAE'];

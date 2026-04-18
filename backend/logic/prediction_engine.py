@@ -3,8 +3,15 @@ from typing import Any, Dict, Optional
 
 ALLOY_LABELS = {
     "Aluminum_A380": "Aluminum A380",
-    "Zinc_ZD3": "Zinc ZD3 / Zamak",
+    "Aluminum_ADC12": "Aluminum ADC12",
+    "Aluminum_A356": "Aluminum A356",
+    "Aluminum_6061": "Aluminum 6061",
+    "Zinc_ZD3": "Zinc ZD3 / Zamak 3",
+    "Zinc_Zamak5": "Zinc Zamak 5",
     "Magnesium_AZ91D": "Magnesium AZ91D",
+    "Magnesium_AM60B": "Magnesium AM60B",
+    "Copper_Brass": "Copper / Brass casting alloy",
+    "Steel_Stainless": "Steel / Stainless reference",
 }
 
 

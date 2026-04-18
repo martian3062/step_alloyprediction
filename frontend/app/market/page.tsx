@@ -10,6 +10,7 @@ import Link from 'next/link';
 
 interface MarketPoint { timestamp: number; metal: string; price_usd: number; exchange_rate: number; }
 interface FxData { rates: Record<string, number>; symbols: Record<string, string>; source: string; as_of: string; }
+interface MarketRate { current_price: number; label?: string; family?: string; is_live?: boolean; status?: string; source?: string; notes?: string; }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCIES = ['USD', 'INR', 'EUR', 'CNY', 'GBP'] as const;
@@ -21,11 +22,12 @@ const formatTime = (ts: number) =>
     timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(new Date(ts * 1000));
 
-const METALS = [
+const FALLBACK_METALS = [
   { key: 'Aluminum_A380',   name: 'Aluminum A380',    color: '#10b981', gradA: '#10b981', gradB: '#059669' },
   { key: 'Zinc_ZD3',        name: 'Zinc ZD3 / Zamak', color: '#f59e0b', gradA: '#f59e0b', gradB: '#d97706' },
   { key: 'Magnesium_AZ91D', name: 'Magnesium AZ91D',  color: '#6366f1', gradA: '#6366f1', gradB: '#4f46e5' },
 ];
+const PALETTE = ['#10b981', '#f59e0b', '#6366f1', '#06b6d4', '#ef4444', '#84cc16', '#14b8a6', '#a855f7', '#64748b', '#f97316'];
 
 function PriceTicker({ label, value, prev, sym }: { label: string; value: number; prev: number; sym: string }) {
   const up = value >= prev;
@@ -113,6 +115,7 @@ export default function MarketIntel() {
   const [history, setHistory]   = useState<MarketPoint[]>([]);
   const [fx, setFx]             = useState<FxData | null>(null);
   const [currency, setCurrency] = useState<Cur>('INR');
+  const [metalRates, setMetalRates] = useState<Record<string, MarketRate>>({});
   const [loading, setLoading]   = useState(true);
   const [lastSync, setLastSync] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,17 +123,25 @@ export default function MarketIntel() {
 
   const rate = fx?.rates?.[currency] ?? 1;
   const sym  = SYM[currency];
+  const metals = Object.keys(metalRates).length
+    ? Object.entries(metalRates).map(([key, data], index) => {
+        const color = PALETTE[index % PALETTE.length];
+        return { key, name: data.label || key.replaceAll('_', ' '), color, gradA: color, gradB: color, rate: data };
+      })
+    : FALLBACK_METALS.map((m) => ({ ...m, rate: undefined as MarketRate | undefined }));
 
   const fetchAll = useCallback(async (showSpin = false) => {
     if (showSpin) setRefreshing(true);
     try {
-      const [hRes, fRes] = await Promise.all([
+      const [hRes, fRes, mRes] = await Promise.all([
         axios.get<{ history: MarketPoint[] }>(`${API_URL}/api/market-history?limit=120`),
         axios.get<FxData>(`${API_URL}/api/market-data/fx-rates`),
+        axios.get<{ current_base_rates: Record<string, MarketRate> }>(`${API_URL}/api/market-data`),
       ]);
       if (!mountedRef.current) return;
       setHistory(hRes.data.history ?? []);
       setFx(fRes.data);
+      setMetalRates(mRes.data.current_base_rates ?? {});
       setLastSync(Math.floor(Date.now() / 1000));
     } catch {
       // keep previous data on error
@@ -148,11 +159,17 @@ export default function MarketIntel() {
   }, [fetchAll]);
 
   const getMetalData = (key: string) =>
-    history.filter((p) => p.metal === key).slice().reverse()
+    history.filter((p) => p.metal === key && p.price_usd > 0).slice().reverse()
       .map((p) => ({ ...p, price_display: p.price_usd * rate, time: formatTime(p.timestamp) }));
 
-  const currentUsd = (key: string) => { const d = getMetalData(key); return d[d.length - 1]?.price_usd ?? 0; };
-  const prevUsd    = (key: string) => { const d = getMetalData(key); return d[d.length - 2]?.price_usd ?? d[d.length - 1]?.price_usd ?? 0; };
+  const currentUsd = (key: string, fallback?: number) => {
+    const d = getMetalData(key).filter((p) => p.price_usd > 0);
+    return d[d.length - 1]?.price_usd ?? fallback ?? 0;
+  };
+  const prevUsd = (key: string, fallback?: number) => {
+    const d = getMetalData(key).filter((p) => p.price_usd > 0);
+    return d[d.length - 2]?.price_usd ?? d[d.length - 1]?.price_usd ?? fallback ?? 0;
+  };
 
   if (loading) {
     return (
@@ -222,19 +239,19 @@ export default function MarketIntel() {
 
       {/* Ticker row */}
       <div className="ticker-row">
-        {METALS.map((m, i) => (
+        {metals.map((m, i) => (
           <motion.div key={m.key} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-            <PriceTicker label={m.name} value={currentUsd(m.key) * rate} prev={prevUsd(m.key) * rate} sym={sym} />
+            <PriceTicker label={m.name} value={currentUsd(m.key, m.rate?.current_price) * rate} prev={prevUsd(m.key, m.rate?.current_price) * rate} sym={sym} />
           </motion.div>
         ))}
       </div>
 
       {/* Charts */}
       <div className="market-charts">
-        {METALS.map((m, idx) => {
+        {metals.map((m, idx) => {
           const data = getMetalData(m.key);
-          const cur  = currentUsd(m.key) * rate;
-          const prev = prevUsd(m.key) * rate;
+          const cur  = currentUsd(m.key, m.rate?.current_price) * rate;
+          const prev = prevUsd(m.key, m.rate?.current_price) * rate;
           const up   = cur >= prev;
           const prices = data.map((d) => d.price_usd * rate);
           const minP = prices.length ? Math.min(...prices) * 0.998 : 0;
@@ -265,7 +282,7 @@ export default function MarketIntel() {
                 </div>
                 <div className="live-dot-wrapper">
                   <span className="live-dot" style={{ background: m.color }} />
-                  <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>Live</span>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{m.rate?.is_live ? 'Live' : 'Reference'}</span>
                 </div>
               </div>
 

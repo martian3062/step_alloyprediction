@@ -15,12 +15,15 @@ logger = logging.getLogger(__name__)
 
 # ─── Metal Keyword Detection Map ────────────────────────────────────────────
 METAL_KEYWORDS = {
+    "ADC12": "Aluminum_ADC12", "A356": "Aluminum_A356", "6061": "Aluminum_6061", "6063": "Aluminum_6061",
     "A380": "Aluminum_A380", "A383": "Aluminum_A380", "A360": "Aluminum_A380",
-    "ADC12": "Aluminum_A380", "ALUMINUM": "Aluminum_A380", "ALUMINIUM": "Aluminum_A380",
-    "AL": "Aluminum_A380", "6061": "Aluminum_A380", "6063": "Aluminum_A380",
+    "ALUMINUM": "Aluminum_A380", "ALUMINIUM": "Aluminum_A380", "AL ": "Aluminum_A380",
+    "ZAMAK 5": "Zinc_Zamak5", "ZAMAK5": "Zinc_Zamak5",
     "ZINC": "Zinc_ZD3", "ZAMAK": "Zinc_ZD3", "ZA": "Zinc_ZD3", "ZDC": "Zinc_ZD3",
-    "MAGNESIUM": "Magnesium_AZ91D", "AZ91": "Magnesium_AZ91D",
-    "AM60": "Magnesium_AZ91D", "MG": "Magnesium_AZ91D",
+    "AM60": "Magnesium_AM60B", "AM60B": "Magnesium_AM60B",
+    "MAGNESIUM": "Magnesium_AZ91D", "AZ91": "Magnesium_AZ91D", "AZ91D": "Magnesium_AZ91D", "MG": "Magnesium_AZ91D",
+    "BRASS": "Copper_Brass", "BRONZE": "Copper_Brass", "COPPER": "Copper_Brass", "CU": "Copper_Brass",
+    "STAINLESS": "Steel_Stainless", "STEEL": "Steel_Stainless", "SS304": "Steel_Stainless", "SS316": "Steel_Stainless",
 }
 
 def detect_metal_from_step(file_path: str) -> Optional[str]:

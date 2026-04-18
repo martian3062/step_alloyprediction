@@ -3,8 +3,15 @@ import math
 # Market Rates (Refined for Industry Standards)
 METAL_PROPERTIES = {
     "Aluminum_A380": {"density": 0.0027, "price_per_kg": 2.85, "injection_pressure": 80, "volatility": 0.06},
+    "Aluminum_ADC12": {"density": 0.00272, "price_per_kg": 2.78, "injection_pressure": 78, "volatility": 0.06},
+    "Aluminum_A356": {"density": 0.00268, "price_per_kg": 3.05, "injection_pressure": 72, "volatility": 0.07},
+    "Aluminum_6061": {"density": 0.00270, "price_per_kg": 3.25, "injection_pressure": 70, "volatility": 0.07},
     "Zinc_ZD3": {"density": 0.0066, "price_per_kg": 3.42, "injection_pressure": 30, "volatility": 0.05},
-    "Magnesium_AZ91D": {"density": 0.0018, "price_per_kg": 4.65, "injection_pressure": 60, "volatility": 0.08}
+    "Zinc_Zamak5": {"density": 0.0067, "price_per_kg": 3.55, "injection_pressure": 32, "volatility": 0.05},
+    "Magnesium_AZ91D": {"density": 0.0018, "price_per_kg": 4.65, "injection_pressure": 60, "volatility": 0.08},
+    "Magnesium_AM60B": {"density": 0.00179, "price_per_kg": 4.90, "injection_pressure": 58, "volatility": 0.08},
+    "Copper_Brass": {"density": 0.0085, "price_per_kg": 8.70, "injection_pressure": 95, "volatility": 0.09},
+    "Steel_Stainless": {"density": 0.0078, "price_per_kg": 2.15, "injection_pressure": 110, "volatility": 0.06},
 }
 
 # Machine Tonnage Mapping (Tonne : Hourly Rate $)
