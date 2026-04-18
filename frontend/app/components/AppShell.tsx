@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Activity, Cpu, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { Activity, Cpu, Moon, ShieldCheck, Sun, TrendingUp } from 'lucide-react';
+import Link from 'next/link';
 import type { UserPersona } from '../types/persona';
 
+const THEME_KEY = 'hpdc-theme-v2';
+
 function getInitialTheme() {
-  if (typeof window === 'undefined') return 'dark';
-  const storedTheme = window.localStorage.getItem('hpdc-theme');
-  return storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'dark';
+  if (typeof window === 'undefined') return 'light';
+  const storedTheme = window.localStorage.getItem(THEME_KEY);
+  return storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'light';
 }
 
 export default function AppShell({
@@ -25,7 +28,7 @@ export default function AppShell({
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem('hpdc-theme', theme);
+    window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
   return (
@@ -36,17 +39,21 @@ export default function AppShell({
           <strong>AlloyQuote Studio</strong>
         </div>
         <nav aria-label="Workflow">
-          <span>
-            <Cpu size={15} />
-            CAD
-          </span>
-          <span>
-            <Activity size={15} />
-            Cost
-          </span>
-          <span>
+          <Link href="/">
+            <span style={{ cursor: 'pointer' }}>
+              <Cpu size={15} />
+              CAD Agent
+            </span>
+          </Link>
+          <Link href="/market">
+            <span style={{ cursor: 'pointer' }}>
+              <TrendingUp size={15} />
+              Market Intel
+            </span>
+          </Link>
+          <span title="Source-aware discovery">
             <ShieldCheck size={15} />
-            Source-aware
+            Agentic
           </span>
         </nav>
         <button className="persona-pill" type="button" onClick={onChangePersona}>

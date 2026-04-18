@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import gsap from 'gsap';
 import { motion } from 'framer-motion';
-import { Bot, Calculator, Factory, FileUp, Loader2, MapPin, Package, SlidersHorizontal } from 'lucide-react';
+import { Bot, Calculator, Clock, Factory, FileUp, Loader2, MapPin, Package, SlidersHorizontal, Trash2 } from 'lucide-react';
 import type { AgentReport } from '../types/report';
 import type { UserPersona } from '../types/persona';
 
@@ -34,14 +34,49 @@ interface ProviderStatus {
   role: string;
 }
 
+interface HistoryItem {
+  id: string;
+  timestamp: number;
+  filename: string;
+  report: AgentReport;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 const fallbackLocations: PlantLocation[] = [
-  { name: 'India (Pune Node)', multiplier: 0.82, city: 'Pune', currency: 'INR' },
-  { name: 'India (Chennai Cluster)', multiplier: 0.85, city: 'Chennai', currency: 'INR' },
-  { name: 'China (Ningbo Hub)', multiplier: 0.92, city: 'Ningbo', currency: 'CNY' },
-  { name: 'Germany (Stuttgart)', multiplier: 1.7, city: 'Stuttgart', currency: 'EUR' },
+  { name: 'India (Pune Node)',        multiplier: 0.82, city: 'Pune',      currency: 'INR' },
+  { name: 'China (Ningbo Hub)',        multiplier: 0.92, city: 'Ningbo',   currency: 'CNY' },
+  { name: 'Germany (Stuttgart)',       multiplier: 1.70, city: 'Stuttgart', currency: 'EUR' },
+  { name: 'USA (Chicago/Midwest)',     multiplier: 1.45, city: 'Chicago',   currency: 'USD' },
+  { name: 'Vietnam (Hanoi)',           multiplier: 0.78, city: 'Hanoi',     currency: 'USD' },
+  { name: 'Mexico (Monterrey)',        multiplier: 0.95, city: 'Monterrey', currency: 'USD' },
+  { name: 'India (Chennai Cluster)',   multiplier: 0.85, city: 'Chennai',   currency: 'INR' },
 ];
+
+// Geo-detect closest manufacturing hub
+const GEO_HUBS: Array<{ name: string; lat: number; lon: number }> = [
+  { name: 'India (Pune Node)',      lat: 18.52,  lon: 73.86  },
+  { name: 'China (Ningbo Hub)',     lat: 29.87,  lon: 121.54 },
+  { name: 'Germany (Stuttgart)',    lat: 48.78,  lon: 9.18   },
+  { name: 'USA (Chicago/Midwest)',  lat: 41.88,  lon: -87.63 },
+  { name: 'Vietnam (Hanoi)',        lat: 21.03,  lon: 105.83 },
+  { name: 'Mexico (Monterrey)',     lat: 25.69,  lon: -100.32},
+  { name: 'India (Chennai Cluster)',lat: 13.08,  lon: 80.27  },
+];
+
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function closestHub(lat: number, lon: number): string {
+  return GEO_HUBS.reduce((best, hub) =>
+    haversine(lat, lon, hub.lat, hub.lon) < haversine(lat, lon, best.lat, best.lon) ? hub : best
+  ).name;
+}
 
 const fallbackMetals: Record<string, MetalRate> = {
   Aluminum_A380: { current_price: 2.85, label: 'Aluminum A380' },
@@ -65,9 +100,26 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
   const [error, setError] = useState('');
   const [marketNote, setMarketNote] = useState('');
   const [aiProviders, setAiProviders] = useState<Record<string, ProviderStatus>>({});
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [geoLoading, setGeoLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sparkleRef = useRef<HTMLDivElement>(null);
   const isTechnical = persona === 'technical';
+
+  const detectLocation = () => {
+    if (!navigator.geolocation) return;
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const hub = closestHub(coords.latitude, coords.longitude);
+        const match = locations.find((l) => l.name === hub) ?? locations[0];
+        setSelectedLocation(match);
+        setGeoLoading(false);
+      },
+      () => setGeoLoading(false),
+      { timeout: 6000 }
+    );
+  };
 
   useEffect(() => {
     async function loadStartupData() {
@@ -86,10 +138,27 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
       } catch {
         setAiProviders({});
       }
+
+      try {
+        const response = await axios.get(`${API_URL}/api/history`);
+        setHistory(response.data.history || []);
+      } catch {
+        setHistory([]);
+      }
     }
 
     loadStartupData();
   }, []);
+
+  const deleteHistoryItem = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    try {
+      await axios.delete(`${API_URL}/api/history/${id}`);
+      setHistory(prev => prev.filter(item => item.id !== id));
+    } catch (err) {
+      console.error('Failed to delete history item', err);
+    }
+  };
 
   useEffect(() => {
     if (!sparkleRef.current) return;
@@ -132,8 +201,17 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
 
     try {
       const response = await axios.post(`${API_URL}/api/agent/process`, body);
-      onAnalysisComplete(response.data.agent_report);
+      const newReport = response.data.agent_report;
+      onAnalysisComplete(newReport);
       setStatusText('Per-part HPDC estimate is ready.');
+      
+      // Update history
+      try {
+        const histResponse = await axios.get(`${API_URL}/api/history`);
+        setHistory(histResponse.data.history || []);
+      } catch (e) {
+        console.error('Failed to refresh history', e);
+      }
     } catch (err: unknown) {
       const detail = axios.isAxiosError(err)
         ? err.response?.data?.detail || 'Estimation failed. Please check the CAD file and backend service.'
@@ -200,7 +278,19 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
         </div>
 
         <div className="field-block">
-          <label htmlFor="plant">Where should this be manufactured?</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+            <label htmlFor="plant">Where should this be manufactured?</label>
+            <button
+              type="button"
+              className="geo-detect-btn"
+              onClick={detectLocation}
+              disabled={geoLoading}
+              title="Auto-detect nearest manufacturing hub"
+            >
+              {geoLoading ? <Loader2 size={12} className="spin-icon" /> : <MapPin size={12} />}
+              {geoLoading ? 'Detecting…' : 'Auto-detect'}
+            </button>
+          </div>
           <div className="input-with-icon">
             <MapPin size={18} />
             <select
@@ -305,9 +395,9 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
         </div>
 
         <div className="provider-strip">
-          {['groq', 'firecrawl', 'tinyfish'].map((provider) => (
+          {['groq', 'hugging_face', 'firecrawl', 'zerve_ai'].map((provider) => (
             <div key={provider} className={aiProviders[provider]?.configured ? 'provider-on' : 'provider-off'}>
-              <span>{provider}</span>
+              <span>{provider.replace('_', ' ')}</span>
               <strong>{aiProviders[provider]?.configured ? 'connected' : 'add key'}</strong>
             </div>
           ))}
@@ -320,6 +410,36 @@ export default function AgentPane({ persona, onAnalysisComplete, setIsProcessing
           <Loader2 className="loading-icon" size={18} />
           Run per-part estimation
         </button>
+
+        {history.length > 0 && (
+          <div className="history-section">
+            <div className="section-header">
+              <Clock size={16} />
+              <h3>Recent Estimates</h3>
+            </div>
+            <div className="history-list">
+              {history.map((item) => (
+                <div 
+                  key={item.id} 
+                  className="history-item"
+                  onClick={() => onAnalysisComplete(item.report)}
+                >
+                  <div className="item-txt">
+                    <span className="item-file">{item.filename}</span>
+                    <span className="item-date">{new Date(item.timestamp * 1000).toLocaleString()}</span>
+                  </div>
+                  <button 
+                    className="delete-item" 
+                    onClick={(e) => deleteHistoryItem(e, item.id)}
+                    title="Delete record"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
     </motion.section>
   );
