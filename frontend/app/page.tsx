@@ -16,10 +16,7 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const storedPersona = window.localStorage.getItem('hpdc-persona');
-      if (storedPersona === 'nontechnical' || storedPersona === 'technical') {
-        setPersona(storedPersona);
-      }
+      window.localStorage.removeItem('hpdc-persona');
       setIsPersonaLoaded(true);
     }, 0);
 
@@ -28,7 +25,6 @@ export default function Home() {
 
   const handlePersonaSelect = (nextPersona: UserPersona) => {
     setPersona(nextPersona);
-    window.localStorage.setItem('hpdc-persona', nextPersona);
   };
 
   return (
