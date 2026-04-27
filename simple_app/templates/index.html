@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>STEP Alloy Cost</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/online-3d-viewer@0.14.0/build/engine/o3dv.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">HPDC Cost Agent</p>
+        </div>
+        <nav aria-label="App status">
+          <span>CAD geometry</span>
+          <span>Auto alloy</span>
+          <span>INR quote</span>
+        </nav>
+      </header>
+
+      <main class="main-container">
+        <aside class="intake">
+          <div class="spark-layer" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+
+          <section class="brand-block">
+            <div class="brand-mark" aria-hidden="true">AQ</div>
+            <div>
+              <p class="eyebrow">CAD-driven HPDC estimator</p>
+              <h1>Upload CAD</h1>
+            </div>
+          </section>
+
+          <div class="status-strip">
+            <span class="status-dot"></span>
+            <span id="status">Upload CAD. Alloy will be detected automatically when metadata is available.</span>
+          </div>
+
+          <form id="quoteForm" class="form-stack">
+            <div class="field-block upload-block">
+              <label for="file">CAD file</label>
+              <input id="file" name="file" type="file" accept=".step,.stp,.iges,.igs,.stl,.obj,.ply,.glb,.gltf,.3mf,.off,.dae" required hidden>
+              <button class="upload-button" type="button" id="pickFile">
+                <span class="button-icon">UP</span>
+                <span id="fileLabel">Upload CAD file</span>
+              </button>
+            </div>
+
+            <div class="field-block">
+              <label for="alloy_type">Alloy type</label>
+              <div class="input-with-icon">
+                <span>A</span>
+                <select id="alloy_type" name="alloy_type">
+                  <option value="auto" selected>Auto detect</option>
+                  <option value="Aluminum_A380">Aluminum A380</option>
+                  <option value="Aluminum_ADC12">Aluminum ADC12</option>
+                  <option value="Aluminum_A356">Aluminum A356</option>
+                  <option value="Aluminum_6061">Aluminum 6061</option>
+                  <option value="Zinc_ZD3">Zinc ZD3</option>
+                  <option value="Zinc_Zamak5">Zinc Zamak5</option>
+                  <option value="Magnesium_AZ91D">Magnesium AZ91D</option>
+                  <option value="Magnesium_AM60B">Magnesium AM60B</option>
+                  <option value="Copper_Brass">Copper Brass</option>
+                  <option value="Steel_Stainless">Steel Stainless</option>
+                </select>
+              </div>
+            </div>
+
+            <details class="advanced-panel" open>
+              <summary>Quote inputs</summary>
+              <div class="field-grid">
+                <div class="field-block">
+                  <label for="annual_volume">Pieces per year</label>
+                  <div class="input-with-icon">
+                    <span>PY</span>
+                    <input id="annual_volume" name="annual_volume" type="number" min="1" value="10000">
+                  </div>
+                </div>
+                <div class="field-block">
+                  <label for="sliders">Sliders in die</label>
+                  <div class="input-with-icon">
+                    <span>S</span>
+                    <input id="sliders" name="sliders" type="number" min="0" value="0">
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div class="quote-preview">
+              <div>
+                <span>Mode</span>
+                <strong>CAD assisted</strong>
+              </div>
+              <div>
+                <span>Alloy</span>
+                <strong id="previewAlloy">Auto</strong>
+              </div>
+              <div>
+                <span>Output</span>
+                <strong>INR</strong>
+              </div>
+            </div>
+
+            <button class="primary-action" type="submit">
+              <span class="loading-icon"></span>
+              Run per-part estimation
+            </button>
+          </form>
+        </aside>
+
+        <section class="hud-pane">
+          <div id="emptyState" class="empty-state hero-state">
+            <div class="hero-copy">
+              <div class="hero-icon" aria-hidden="true">CAD</div>
+              <p class="eyebrow">Real CAD intelligence</p>
+              <h2>Ready for CAD geometry extraction</h2>
+            </div>
+          </div>
+
+          <div id="processingState" class="empty-state processing-state hidden">
+            <div class="spinner"></div>
+            <h2>Building quote</h2>
+            <p>Reading CAD geometry, detecting alloy hints, and calculating HPDC cost.</p>
+          </div>
+
+          <section id="results" class="report hidden">
+            <div class="cost-hero">
+              <div>
+                <p>Per part HPDC cost (Estimated)</p>
+                <strong id="costTotal">INR 0.00</strong>
+                <span id="costAlloy">Auto alloy</span>
+              </div>
+              <div class="hero-stat">
+                <span>Casting weight</span>
+                <strong id="heroCastingWeight">0 g</strong>
+              </div>
+            </div>
+
+            <article class="metric-panel cad-preview-panel">
+              <div class="section-title">
+                <span class="section-icon">CAD</span>
+                <span>CAD Preview</span>
+              </div>
+              <div class="cad-preview-card">
+                <div id="cadPreview" class="cad-preview-viewport" aria-label="Real CAD preview"></div>
+                <div class="cad-preview-meta">
+                  <span>Real 3D viewer rendering exact file</span>
+                  <strong id="cadPreviewLabel">Waiting for CAD file</strong>
+                </div>
+              </div>
+            </article>
+
+            <div class="report-grid two-col-grid">
+              <article class="metric-panel">
+                <div class="section-title">
+                  <span class="section-icon">G</span>
+                  <span>Geometry</span>
+                </div>
+                <div id="geometryGrid" class="metric-grid"></div>
+              </article>
+              <article class="metric-panel">
+                <div class="section-title">
+                  <span class="section-icon">INR</span>
+                  <span>Cost Breakdown</span>
+                </div>
+                <div id="costBreakdown" class="breakdown-list"></div>
+              </article>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

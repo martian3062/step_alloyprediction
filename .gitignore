@@ -3,19 +3,20 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
+.env.local
+.env.*.local
 .venv/
 env/
 venv/
 ENV/
 
+# Logs
+*.log
+.flask-server.pid
+
 # CAD Files (Privacy and Size)
-backend/uploads/*.STEP
-backend/uploads/*.step
-backend/uploads/*.stp
-backend/uploads/*.iges
-backend/uploads/*.igs
-backend/uploads/*.glb
-backend/uploads/*.stl
+uploads/
+simple_app/uploads/
 
 # Debug/Temp
 debug_prices.py
